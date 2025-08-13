@@ -3,7 +3,7 @@
  * 
  * Combines power profiling capabilities with sophisticated ranging test control.
  * 
- * Power Tests: IDLE_TEST, RX_TEST, TX_TEST, SLEEP_CYCLE, AUTO_SEQUENCE
+* Power Tests: IDLE_TEST, RX_TEST, TX_TEST, SLEEP_CYCLE, REALSLEEP, AUTO_SEQUENCE
  * Ranging Test: RANGING_TEST with precise GPIO timing markers
  * 
  * Hardware: ESP32 + DWM1000 UWB module + SH1106 OLED display
@@ -24,6 +24,8 @@
 #define SPI_MISO 19
 #define SPI_MOSI 23
 const uint8_t PIN_RST = 27, PIN_IRQ = 34, PIN_SS = 17;
+const uint8_t PIN_WAKEUP = 32;  // DW1000 WAKEUP via 470 Ω
+const uint8_t PIN_EXTON  = 33;  // DW1000 EXTON  via 470 Ω
 #define I2C_SDA 22
 #define I2C_SCL 21
 const uint8_t BUTTON_PIN = 13;
@@ -53,6 +55,7 @@ enum TestMode {
   MODE_TX_TEST,
   MODE_RANGING_TEST,
   MODE_SLEEP_CYCLE,
+  MODE_REAL_SLEEP,
   MODE_AUTO_SEQUENCE
 };
 
@@ -97,6 +100,13 @@ int pin25PulseCount = 0, pin26PulseCount = 0;
 unsigned long rangingSequenceStartTime = 0;
 bool rangingIdlePeriodActive = false;
 const unsigned long RANGING_IDLE_DURATION = 1000; // 1 second idle before ranging
+
+void wakeDW1000() {
+  // WAKEUP pin (IO32) is the sole wake source; EXTON (IO33) stays low
+  digitalWrite(PIN_WAKEUP, HIGH);
+  delayMicroseconds(1000);   // ≥1 ms pulse
+  digitalWrite(PIN_WAKEUP, LOW);
+}
 
 // ===== BUTTON AND DISPLAY =====
 uint8_t lastButtonState = HIGH;
@@ -190,10 +200,10 @@ void setup() {
   digitalWrite(PPK2_RX_PIN, LOW);
 
   // Control unused pins to avoid interference
-  pinMode(32, OUTPUT);
-  digitalWrite(32, LOW);
-  pinMode(33, OUTPUT);
-  digitalWrite(33, LOW);
+  pinMode(PIN_WAKEUP, OUTPUT);
+  digitalWrite(PIN_WAKEUP, LOW);
+  pinMode(PIN_EXTON, OUTPUT);
+  digitalWrite(PIN_EXTON, LOW);
 
   // Initialize I2C and OLED
   Wire.begin(I2C_SDA, I2C_SCL);
@@ -213,6 +223,7 @@ void setup() {
   Serial.println("  RX_TEST             - Measure receiver power");
   Serial.println("  TX_TEST [delay_ms]  - Measure periodic TX power");
   Serial.println("  SLEEP_CYCLE <ms>    - Measure deep sleep power");
+  Serial.println("  realsleep <ms>      - Real deep sleep via WAKEUP pin");
   Serial.println("  auto                - Automated power sequence");
   Serial.println("Solo Ranging:");
   Serial.println("  RANGING_TEST <count> - Controlled ranging with GPIO markers");
@@ -238,6 +249,7 @@ void loop() {
     case MODE_TX_TEST: handleTxTest(); break;
     case MODE_RANGING_TEST: handleRangingTest(); break;
     case MODE_SLEEP_CYCLE: handleSleepTest(); break;
+    case MODE_REAL_SLEEP: handleRealSleepTest(); break;
     case MODE_AUTO_SEQUENCE: handleAutoSequence(); break;
   }
 
@@ -283,6 +295,7 @@ void parseCommand(String cmd) {
   else if (command == "TX_TEST") { txInterval = (arg1 > 0) ? arg1 : 50; startTxTest(); }
   else if (command == "RANGING_TEST") { if (arg1 > 0) startRangingTest(arg1); else Serial.println("Usage: RANGING_TEST <count>"); }
   else if (command == "SLEEP_CYCLE") { sleepDuration = (arg1 > 0) ? arg1 : 5000; startSleepTest(); }
+  else if (command == "realsleep") { sleepDuration = (arg1 > 0) ? arg1 : 5000; startRealSleepTest(); }
   else if (command == "auto") startAutoSequence();
   else if (command == "STOP_TEST") Serial.println("All tests stopped.");
   else Serial.println("Unknown command.");
@@ -332,6 +345,19 @@ void startSleepTest() {
   inDeepSleep = true;
   currentTestMode = MODE_SLEEP_CYCLE;
   Serial.println("SLEEP_CYCLE: Active - measuring ultra-low power");
+}
+
+void startRealSleepTest() {
+  Serial.printf("REALSLEEP: Starting for %lums\n", sleepDuration);
+  DW1000.clearInterrupts();
+  DW1000.idle();
+  sleepStartTime = millis();
+  Serial.flush();
+  updateOLED("REALSLEEP", "Sleeping...");
+  delay(100);
+  DW1000.realDeepSleep(true);  // uses WAKEUP pin; EXTON stays low
+  inDeepSleep = true;
+  currentTestMode = MODE_REAL_SLEEP;
 }
 
 void startAutoSequence() {
@@ -590,6 +616,18 @@ void handleSleepTest() {
       currentTestMode = MODE_NONE;
       Serial.println("SLEEP_CYCLE: Complete");
     }
+  }
+}
+
+void handleRealSleepTest() {
+  if (inDeepSleep && millis() - sleepStartTime >= sleepDuration) {
+    // Only WAKEUP pin is used to exit deep sleep; EXTON stays low
+    wakeDW1000();
+    delay(10);
+    applyChannelConfiguration();
+    inDeepSleep = false;
+    currentTestMode = MODE_NONE;
+    Serial.println("REALSLEEP: Complete - chip reinitialized");
   }
 }
 
