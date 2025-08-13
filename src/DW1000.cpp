@@ -291,7 +291,39 @@ void DW1000Class::deepSleep() {
 	readBytes(AON, AON_CTRL_SUB, aon_ctrl, LEN_AON_CTRL);
 	setBit(aon_ctrl, LEN_AON_CTRL, UPL_CFG_BIT, true);
 	setBit(aon_ctrl, LEN_AON_CTRL, SAVE_BIT, true);
-	writeBytes(AON, AON_CTRL_SUB, aon_ctrl, LEN_AON_CTRL);
+        writeBytes(AON, AON_CTRL_SUB, aon_ctrl, LEN_AON_CTRL);
+}
+
+void DW1000Class::realDeepSleep(bool wakeOnPin) {
+        byte aon_wcfg[LEN_AON_WCFG];
+        memset(aon_wcfg, 0, LEN_AON_WCFG);
+        readBytes(AON, AON_WCFG_SUB, aon_wcfg, LEN_AON_WCFG);
+        setBit(aon_wcfg, LEN_AON_WCFG, ONW_LDC_BIT, true);
+        setBit(aon_wcfg, LEN_AON_WCFG, ONW_LDD0_BIT, true);
+        writeBytes(AON, AON_WCFG_SUB, aon_wcfg, LEN_AON_WCFG);
+
+        byte pmsc_ctrl1[LEN_PMSC_CTRL1];
+        memset(pmsc_ctrl1, 0, LEN_PMSC_CTRL1);
+        readBytes(PMSC, PMSC_CTRL1_SUB, pmsc_ctrl1, LEN_PMSC_CTRL1);
+        setBit(pmsc_ctrl1, LEN_PMSC_CTRL1, ATXSLP_BIT, true);
+        setBit(pmsc_ctrl1, LEN_PMSC_CTRL1, ARXSLP_BIT, true);
+        writeBytes(PMSC, PMSC_CTRL1_SUB, pmsc_ctrl1, LEN_PMSC_CTRL1);
+
+        byte aon_cfg0[LEN_AON_CFG0];
+        memset(aon_cfg0, 0, LEN_AON_CFG0);
+        readBytes(AON, AON_CFG0_SUB, aon_cfg0, LEN_AON_CFG0);
+        setBit(aon_cfg0, LEN_AON_CFG0, WAKE_SPI_BIT, false);
+        setBit(aon_cfg0, LEN_AON_CFG0, WAKE_PIN_BIT, wakeOnPin);
+        setBit(aon_cfg0, LEN_AON_CFG0, WAKE_CNT_BIT, !wakeOnPin);
+        setBit(aon_cfg0, LEN_AON_CFG0, SLEEP_EN_BIT, true);
+        writeBytes(AON, AON_CFG0_SUB, aon_cfg0, LEN_AON_CFG0);
+
+        byte aon_ctrl[LEN_AON_CTRL];
+        memset(aon_ctrl, 0, LEN_AON_CTRL);
+        readBytes(AON, AON_CTRL_SUB, aon_ctrl, LEN_AON_CTRL);
+        setBit(aon_ctrl, LEN_AON_CTRL, UPL_CFG_BIT, true);
+        setBit(aon_ctrl, LEN_AON_CTRL, SAVE_BIT, true);
+        writeBytes(AON, AON_CTRL_SUB, aon_ctrl, LEN_AON_CTRL);
 }
 
 void DW1000Class::spiWakeup(){

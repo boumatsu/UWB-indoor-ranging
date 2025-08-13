@@ -97,6 +97,11 @@ public:
         static void deepSleep();
 
         /**
+        Enable true deep sleep mode with analog blocks off
+        */
+        static void realDeepSleep(bool wakeOnPin = true);
+
+        /**
         Wake-up from deep sleep by toggle chip select pin
         */
         static void spiWakeup();
